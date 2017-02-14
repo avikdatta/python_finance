@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+
+import matplotlib
+# Force matplotlib to not use any Xwindows backend.
+matplotlib.use('Agg')
+
+import os
 import pandas as pd
 from pandas_datareader import data, wb, Options
 import matplotlib.pyplot as plt
@@ -6,16 +13,22 @@ from matplotlib.finance import quotes_historical_yahoo_ohlc, candlestick_ohlc
 from matplotlib.dates import date2num, DateFormatter
 from datetime import datetime
 import json
+from utils import get_temp_dir, clean_temp_dir
+
 
 class NseStockData:
 
-  def __init__(self, stock, date, server='yahoo', date_window=None, small_window=15, large_window=50):
+  def __init__(self, stock, date, work_dir, server='yahoo', date_window=None, small_window=15, large_window=50, fig_height=8, fig_width=12, fig_font=10):
     self.stock=stock
     self.date=date
+    self.work_dir=work_dir
     self.date_window=date_window
     self.server=server
     self.small_window=small_window
     self.large_window=large_window
+    self.fig_height=fig_height
+    self.fig_width=fig_width
+    self.fig_font=fig_font
 
 
   def _get_moving_average(self):
@@ -27,8 +40,6 @@ class NseStockData:
     # fetch data from yahoo server
     nse_data=data.DataReader(self.stock, self.server, self.date)
     
-    # set date format
-    date_format=DateFormatter('%b %y')
     
     # set values for moving average calculation    
     d_small=nse_data['Adj Close'].rolling(window=self.small_window)
@@ -59,6 +70,10 @@ class NseStockData:
     return nse_data, data_array
 
   def _calculate_ema_value(self, window, nse_data, lable, first_val):
+    '''
+    A function for calculating exponential MA values for a given window
+    '''
+
     # add empty EMA value
     nse_data[lable]=''
     
@@ -73,7 +88,44 @@ class NseStockData:
         nse_data=nse_data.set_value(index, lable, ema_val)
     return nse_data
 
+  def _plot_ma_data(self, nse_data, nse_data_arr):
+    '''
+    A function for plotting MA data
+    '''
+
+    try:
+      temp_dir=get_temp_dir(work_dir=self.work_dir)
+      os.chdir(temp_dir)
+      date_format=DateFormatter('%b %y')
+      filename='{}_{}_{}_{}.png'.format(self.stock, self.date, self.small_window, self.large_window)
+      filename=os.path.join(temp_dir,filename)
+      title='{}_{}_{}_{}'.format(self.stock, self.date, self.small_window, self.large_window)
+
+      # plot data
+
+      plt.figure(figsize=(self.fig_width, self.fig_height))
+      fig,ax=plt.subplots()
+      ax.xaxis_date()
+      ax.xaxis.set_major_formatter(date_format)
+      mlp=candlestick_ohlc(ax, nse_data_arr, width=0.7, colorup='g', colordown='r' )
+      nse_data['MA{}'.format(self.small_window)].plot(style='-', alpha=0.5, color='orange', label='MA{}'.format(self.small_window))
+      nse_data['MA{}'.format(self.large_window)].plot(style='-', alpha=0.5, color='blue', label='MA{}'.format(self.large_window))
+      nse_data['EMA{}'.format(self.small_window)].plot(style='-', alpha=0.5, color='purple', label='EMA{}'.format(self.small_window))
+      nse_data['EMA{}'.format(self.large_window)].plot(style='-', alpha=0.5, color='lime', label='EMA{}'.format(self.large_window))
+      handles, labels = ax.get_legend_handles_labels()
+      ax.legend(handles, labels, loc='best', fontsize=8)
+      plt.title(title)
+      plt.savefig(filename,bbox_inches='tight')
+      plt.close("all")
+
+    except Exception as e:
+      print('Error {}'.format(e))
+      clean_temp_dir(temp_dir=temp_dir)
+    else:
+      return filename, temp_dir
+
 if __name__=='__main__':
-  t1=NseStockData(stock='ADANIPORTS.NS', date='2016-01-01', date_window=20)
+  t1=NseStockData(stock='ADANIPORTS.NS', date='2016-01-01', date_window=20, work_dir='/root/app')
   t1_data, t1_array=t1._get_moving_average()
-  print(json.dumps(t1_data.tail(1).to_json()))
+  filename, temp_dir=t1._plot_ma_data(t1_data, t1_array)
+  print(filename)
